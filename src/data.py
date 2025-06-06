@@ -2,24 +2,31 @@ import os
 import librosa
 import soundfile as sf
 import numpy as np
+import noisereduce as nr
 
 # Kayıtların bulunduğu ana dizin
 data_root = r"d:\SesVeriSeti"
 # Önişlenmiş dosyaların kaydedileceği dizin
-output_root = os.path.join(data_root, "preprocessed")
+output_root = os.path.join(data_root, "preprocessed4")
 os.makedirs(output_root, exist_ok=True)
 
-def preprocess_audio(file_path, out_path, sr=16000, top_db=20):
+def preprocess_audio(file_path, out_path, vad_db=30, vad_margin_sec=1.0, vad_tail_sec=0.7):
     # Ses dosyasını yükle
-    y, orig_sr = librosa.load(file_path, sr=None)
-    # Gürültü azaltma (basit spectral gating)
-    y = librosa.effects.preemphasis(y)
-    # Sessiz bölge kırpma
-    y, _ = librosa.effects.trim(y, top_db=top_db)
+    y, sr = librosa.load(file_path, sr=None)
+    # Gürültü azaltma
+    y = nr.reduce_noise(y=y, sr=sr)
+    # VAD ile aktif sesli bölgeyi bul
+    intervals = librosa.effects.split(y, top_db=vad_db)
+    if len(intervals) > 0:
+        # Başlangıç ve bitişi belirle, baştan ve sondan margin bırak
+        start = max(intervals[0][0] - int(vad_margin_sec * sr), 0)
+        # Son aktif sesin bitişinden sonra tail kadar bırak
+        end = min(intervals[-1][1] + int(vad_tail_sec * sr), len(y))
+        y = y[start:end]
     # Normalizasyon
-    y = y / np.max(np.abs(y))
-    # Kaydet (orijinal örnekleme oranı ile)
-    sf.write(out_path, y, orig_sr)
+    if np.max(np.abs(y)) > 0:
+        y = y / np.max(np.abs(y))
+    sf.write(out_path, y, sr)
 
 # Tüm denek klasörlerini tara
 for subject_folder in os.listdir(data_root):
